@@ -87,9 +87,6 @@ TerraPulse transforms everyday consumption data into actionable sustainability i
 - Recharts
 
 ### Deployment
-- Vercel
-
-### Development Platform
 - Lovable
 
 ---
