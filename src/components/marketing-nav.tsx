@@ -23,13 +23,14 @@ export function MarketingNav() {
             </Button>
           ) : (
             <>
-              <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-                <Link to="/login">Sign in</Link>
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/login">Login</Link>
               </Button>
               <Button asChild size="sm" className="gradient-primary text-primary-foreground shadow-glow">
-                <Link to="/signup">Get started</Link>
+                <Link to="/signup">Sign Up</Link>
               </Button>
             </>
+
           )}
         </div>
       </div>
