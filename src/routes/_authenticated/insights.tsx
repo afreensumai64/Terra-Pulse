@@ -1,10 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo } from "react";
-import { Zap, Flame, Car, Sparkles, Leaf, TrendingDown, TrendingUp, Minus } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Zap, Flame, Car, Sparkles, Leaf, TrendingDown, TrendingUp, Minus, Brain, Loader2, AlertCircle } from "lucide-react";
 import { useEntries } from "@/hooks/use-entries";
 import { useAuth } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { deriveStats } from "@/lib/stats";
+import { useServerFn } from "@tanstack/react-start";
+import { useMutation } from "@tanstack/react-query";
+import { generateAIInsights, type AIInsightsResult } from "@/lib/api/ai-insights.functions";
 
 export const Route = createFileRoute("/_authenticated/insights")({
   head: () => ({ meta: [{ title: "Insights — TerraPulse" }] }),
@@ -35,7 +39,6 @@ function Insights() {
   const stats = useMemo(() => deriveStats(entries), [entries]);
   const latest = stats.latest;
 
-  // Use a rolling window (last 3 entries) to rank sources — more stable than latest only
   const ranked = useMemo(() => {
     if (!entries.length) return [];
     const window = entries.slice(-3);
@@ -47,6 +50,24 @@ function Insights() {
       { key: "travel" as const, value: avg("travel_emissions") },
     ].sort((a, b) => b.value - a.value);
   }, [entries]);
+
+  const generate = useServerFn(generateAIInsights);
+  const aiMutation = useMutation<AIInsightsResult, Error, void>({
+    mutationFn: async () => {
+      if (!latest || !ranked.length) throw new Error("No data");
+      return generate({
+        data: {
+          electricity: Number(latest.electricity_emissions ?? 0),
+          fuel: Number(latest.fuel_emissions ?? 0),
+          travel: Number(latest.travel_emissions ?? 0),
+          total: Number(latest.total_emissions ?? 0),
+          ecoScore: Number(latest.eco_score ?? 0),
+          trend: stats.trend,
+          topSource: ranked[0]?.key,
+        },
+      });
+    },
+  });
 
   if (isLoading) return <Skeleton className="mx-auto h-96 max-w-5xl" />;
   if (!latest) return <Empty />;
@@ -60,6 +81,8 @@ function Insights() {
       ? "Your footprint is stable. A small habit change could unlock the next improvement."
       : "Save another entry to see how your habits are trending.";
   const TrendIcon = stats.trend === "improving" ? TrendingDown : stats.trend === "increasing" ? TrendingUp : Minus;
+
+  const aiResult = aiMutation.data;
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
@@ -75,6 +98,83 @@ function Insights() {
           Your trend
         </div>
         <p className="mt-2 text-sm text-muted-foreground">{trendCopy}</p>
+      </div>
+
+      {/* AI Sustainability Insights */}
+      <div className="relative overflow-hidden rounded-3xl border border-border bg-card p-6 shadow-card sm:p-8">
+        <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full gradient-primary opacity-10" />
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl gradient-primary text-primary-foreground shadow-glow">
+              <Brain className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">AI Sustainability Insights</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Personalized recommendations generated from your latest footprint data.</p>
+            </div>
+          </div>
+          <Button
+            onClick={() => aiMutation.mutate()}
+            disabled={aiMutation.isPending}
+            className="gradient-primary text-primary-foreground shadow-glow"
+          >
+            {aiMutation.isPending ? (
+              <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Generating…</>
+            ) : (
+              <><Sparkles className="mr-1.5 h-4 w-4" /> {aiResult ? "Regenerate" : "Generate AI Insights"}</>
+            )}
+          </Button>
+        </div>
+
+        {aiMutation.isError && (
+          <div className="mt-5 flex items-start gap-2 rounded-xl border border-border bg-muted/40 p-4 text-sm">
+            <AlertCircle className="mt-0.5 h-4 w-4 text-amber-500" />
+            <span className="text-muted-foreground">Couldn't reach the AI service. Your standard recommendations below are still active.</span>
+          </div>
+        )}
+
+        {aiResult && !aiResult.ok && (
+          <div className="mt-5 flex items-start gap-2 rounded-xl border border-border bg-muted/40 p-4 text-sm">
+            <AlertCircle className="mt-0.5 h-4 w-4 text-amber-500" />
+            <span className="text-muted-foreground">
+              {aiResult.reason === "not_configured"
+                ? "AI insights aren't configured yet. The standard recommendations below remain available."
+                : aiResult.message}
+            </span>
+          </div>
+        )}
+
+        {aiResult && aiResult.ok && (
+          <div className="mt-6 space-y-5">
+            <div>
+              <h3 className="text-base font-semibold">{aiResult.insights.headline}</h3>
+              <p className="mt-1.5 text-sm text-muted-foreground">{aiResult.insights.summary}</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {aiResult.insights.tips.map((tip, i) => (
+                <div key={i} className="rounded-2xl border border-border bg-muted/30 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-medium">{tip.title}</div>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                      tip.impact === "high" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" :
+                      tip.impact === "medium" ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" :
+                      "bg-muted text-muted-foreground"
+                    }`}>{tip.impact}</span>
+                  </div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{tip.detail}</p>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4">
+              <div className="text-xs font-medium uppercase tracking-wider text-primary">Top opportunity</div>
+              <p className="mt-1 text-sm">{aiResult.insights.opportunity}</p>
+            </div>
+          </div>
+        )}
+
+        {!aiResult && !aiMutation.isPending && !aiMutation.isError && (
+          <p className="mt-5 text-xs text-muted-foreground">Generate a tailored AI plan based on this month's electricity, fuel, and travel data.</p>
+        )}
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
